@@ -1,5 +1,6 @@
 # Python virtual environment
 backend/.venv/
+backend/venv/
 
 # Python generated files
 **/__pycache__/
@@ -17,3 +18,9 @@ backend/.venv/
 # Operating system files
 .DS_Store
 Thumbs.db
+
+# Test and Python generated files
+.pytest_cache/
+**/.pytest_cache/
+**/__pycache__/
+*.py[cod]
