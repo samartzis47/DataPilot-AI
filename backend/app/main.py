@@ -1,15 +1,13 @@
 from fastapi import FastAPI
 
 from app.api.router import api_router
+from app.core.config import settings
 
 
 app = FastAPI(
-    title="DataPilot-AI",
-    description=(
-        "DataPilot-AI is a powerful AI-powered data analysis tool "
-        "that helps you extract insights from your data."
-    ),
-    version="0.1.0",
+    title=settings.app_name,
+    description=settings.app_description,
+    version=settings.app_version,
 )
 
 
