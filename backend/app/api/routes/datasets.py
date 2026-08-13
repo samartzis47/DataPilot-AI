@@ -16,6 +16,10 @@ from app.services.file_storage import (
     save_csv_file,
 )
 
+from app.core.config import settings
+from app.schemas.profile import DatasetProfile
+from app.services.data_profiler import InvalidCSVError, profile_csv
+
 router = APIRouter(
     prefix="/datasets",
     tags=["datasets"],
@@ -57,6 +61,47 @@ async def upload_dataset(
     except Exception:
         delete_stored_file(stored_filename)
         raise
+
+@router.get("/{dataset_id}/profile", response_model=DatasetProfile)
+def get_dataset_profile(
+    dataset_id: int,
+    db: Annotated[Session, Depends(get_db)],
+):
+    dataset = get_dataset(db, dataset_id)
+
+    if dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
+
+    if dataset.stored_filename is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Dataset has no uploaded file",
+        )
+
+    file_path = settings.upload_dir / Path(dataset.stored_filename).name
+
+    if not file_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset file not found",
+        )
+
+    try:
+        profile = profile_csv(file_path)
+    except InvalidCSVError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=str(exc),
+        ) from exc
+
+    return {
+        "dataset_id": dataset.id,
+        "original_filename": dataset.original_filename,
+        **profile,
+    }
 
 @router.get("/{dataset_id}", response_model=DatasetRead)
 def read_dataset(

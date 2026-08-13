@@ -195,3 +195,56 @@ def test_upload_rejects_file_over_size_limit(monkeypatch):
         not settings.upload_dir.exists()
         or list(settings.upload_dir.iterdir()) == []
     )
+
+def test_profile_uploaded_dataset():
+    upload_response = client.post(
+        "/datasets/upload",
+        files={
+            "file": (
+                "sales.csv",
+                b"name,revenue\nAlice,120.50\nBob,89.99\n",
+                "text/csv",
+            )
+        },
+    )
+
+    assert upload_response.status_code == 201
+    dataset_id = upload_response.json()["id"]
+
+    response = client.get(f"/datasets/{dataset_id}/profile")
+
+    assert response.status_code == 200
+
+    profile = response.json()
+    assert profile["dataset_id"] == dataset_id
+    assert profile["original_filename"] == "sales.csv"
+    assert profile["row_count"] == 2
+    assert profile["column_count"] == 2
+    assert profile["duplicate_row_count"] == 0
+    assert len(profile["columns"]) == 2
+    assert len(profile["preview"]) == 2
+
+def test_profile_missing_dataset():
+    response = client.get("/datasets/999/profile")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Dataset not found"}
+
+
+def test_profile_dataset_without_uploaded_file():
+    create_response = client.post(
+        "/datasets",
+        json={
+            "original_filename": "metadata.csv",
+            "content_type": "text/csv",
+            "size_bytes": 100,
+        },
+    )
+
+    assert create_response.status_code == 201
+    dataset_id = create_response.json()["id"]
+
+    response = client.get(f"/datasets/{dataset_id}/profile")
+
+    assert response.status_code == 409
+    assert response.json() == {"detail": "Dataset has no uploaded file"}
