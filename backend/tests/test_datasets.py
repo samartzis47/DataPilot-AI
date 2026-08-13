@@ -222,6 +222,18 @@ def test_profile_uploaded_dataset():
     assert profile["column_count"] == 2
     assert profile["duplicate_row_count"] == 0
     assert len(profile["columns"]) == 2
+
+    columns_by_name = {
+        column["name"]: column
+        for column in profile["columns"]
+    }
+
+    assert columns_by_name["name"]["numeric_statistics"] is None
+
+    revenue_statistics = columns_by_name["revenue"]["numeric_statistics"]
+    assert revenue_statistics["minimum"] == 89.99
+    assert revenue_statistics["maximum"] == 120.5
+    assert revenue_statistics["mean"] == 105.25
     assert len(profile["preview"]) == 2
 
 def test_profile_missing_dataset():

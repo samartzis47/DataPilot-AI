@@ -2,6 +2,14 @@ from typing import Any
 
 from pydantic import BaseModel
 
+class NumericStatistics(BaseModel):
+    minimum: float
+    maximum: float
+    mean: float
+    median: float
+    standard_deviation: float
+    first_quartile: float
+    third_quartile: float
 
 class ColumnProfile(BaseModel):
     name: str
@@ -9,6 +17,7 @@ class ColumnProfile(BaseModel):
     missing_count: int
     missing_percentage: float
     unique_count: int
+    numeric_statistics: NumericStatistics | None = None
 
 
 class DatasetProfile(BaseModel):

@@ -30,6 +30,32 @@ def profile_dataframe(dataframe: pd.DataFrame) -> dict[str, Any]:
         series = dataframe[column_name]
         missing_count = int(series.isna().sum())
 
+
+        numeric_statistics = None
+
+        if pd.api.types.is_numeric_dtype(series):
+            non_null_series = series.dropna()
+
+            if not non_null_series.empty:
+                numeric_statistics = {
+                    "minimum": float(non_null_series.min()),
+                    "maximum": float(non_null_series.max()),
+                    "mean": round(float(non_null_series.mean()), 2),
+                    "median": round(float(non_null_series.median()), 2),
+                    "standard_deviation": round(
+                        float(non_null_series.std(ddof=0)),
+                        2,
+                    ),
+                    "first_quartile": round(
+                        float(non_null_series.quantile(0.25)),
+                        2,
+                    ),
+                    "third_quartile": round(
+                        float(non_null_series.quantile(0.75)),
+                        2,
+                    ),
+                }
+
         column_profiles.append(
             {
                 "name": str(column_name),
@@ -41,8 +67,10 @@ def profile_dataframe(dataframe: pd.DataFrame) -> dict[str, Any]:
                     else 0.0
                 ),
                 "unique_count": int(series.nunique(dropna=True)),
+                "numeric_statistics": numeric_statistics,
             }
         )
+    
 
     preview = json.loads(
         dataframe.head(5).to_json(
