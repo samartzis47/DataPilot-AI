@@ -9,6 +9,11 @@ class Dataset(Base):
         String(255),
         nullable=False,
     )
+    stored_filename: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        unique=True,
+    )
     content_type: Mapped[str] = mapped_column(
         String(100),
         nullable=False,

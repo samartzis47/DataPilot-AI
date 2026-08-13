@@ -22,3 +22,24 @@ def get_dataset(db: Session, dataset_id: int) -> Dataset | None:
 def get_datasets(db: Session) -> list[Dataset]:
     statement = select(Dataset)
     return list(db.scalars(statement).all())
+
+def create_uploaded_dataset(
+    db: Session,
+    *,
+    original_filename: str,
+    stored_filename: str,
+    content_type: str,
+    size_bytes: int,
+) -> Dataset:
+    dataset = Dataset(
+        original_filename=original_filename,
+        stored_filename=stored_filename,
+        content_type=content_type,
+        size_bytes=size_bytes,
+    )
+
+    db.add(dataset)
+    db.commit()
+    db.refresh(dataset)
+
+    return dataset

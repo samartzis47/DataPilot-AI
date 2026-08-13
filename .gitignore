@@ -24,3 +24,6 @@ Thumbs.db
 **/.pytest_cache/
 **/__pycache__/
 *.py[cod]
+
+# Local dataset storage
+backend/storage/
