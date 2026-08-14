@@ -22,6 +22,53 @@ def evaluate_data_quality(dataframe: pd.DataFrame) -> dict[str, Any]:
         else 0.0
     )
 
+    issues: list[dict[str, Any]] = []
+
+    incomplete_percentage = round(
+        100 - completeness_percentage,
+        2,
+    )
+
+    if missing_cell_count > 0:
+        if incomplete_percentage >= 20:
+            severity = "high"
+        elif incomplete_percentage >= 5:
+            severity = "medium"
+        else:
+            severity = "low"
+
+        issues.append(
+            {
+                "code": "missing_values",
+                "severity": severity,
+                "message": (
+                    f"Dataset contains {missing_cell_count} missing cells "
+                    f"({incomplete_percentage}% incomplete)."
+                ),
+                "column": None,
+            }
+        )
+
+    if duplicate_row_count > 0:
+        if duplicate_percentage >= 20:
+            severity = "high"
+        elif duplicate_percentage >= 5:
+            severity = "medium"
+        else:
+            severity = "low"
+
+        issues.append(
+            {
+                "code": "duplicate_rows",
+                "severity": severity,
+                "message": (
+                    f"Dataset contains {duplicate_row_count} duplicate rows "
+                    f"({duplicate_percentage}% of all rows)."
+                ),
+                "column": None,
+            }
+        )
+
     quality_score = round(
         completeness_percentage * 0.7
         + (100 - duplicate_percentage) * 0.3,
@@ -33,4 +80,5 @@ def evaluate_data_quality(dataframe: pd.DataFrame) -> dict[str, Any]:
         "missing_cell_count": missing_cell_count,
         "completeness_percentage": completeness_percentage,
         "duplicate_percentage": duplicate_percentage,
+        "issues": issues,
     }

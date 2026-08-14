@@ -242,6 +242,7 @@ def test_profile_uploaded_dataset():
     assert quality["missing_cell_count"] == 0
     assert quality["completeness_percentage"] == 100.0
     assert quality["duplicate_percentage"] == 0.0
+    assert quality["issues"] == []
 
 def test_profile_missing_dataset():
     response = client.get("/datasets/999/profile")

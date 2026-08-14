@@ -1,6 +1,7 @@
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
+
 
 class NumericStatistics(BaseModel):
     minimum: float
@@ -19,11 +20,18 @@ class ColumnProfile(BaseModel):
     unique_count: int
     numeric_statistics: NumericStatistics | None = None
 
+class QualityIssue(BaseModel):
+    code: str
+    severity: Literal["low", "medium", "high"]
+    message: str
+    column: str | None = None
+
 class DataQualitySummary(BaseModel):
     score: float
     missing_cell_count: int
     completeness_percentage: float
     duplicate_percentage: float
+    issues: list[QualityIssue]
 
 class DatasetProfile(BaseModel):
     dataset_id: int
