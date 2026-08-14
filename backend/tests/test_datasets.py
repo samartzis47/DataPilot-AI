@@ -236,6 +236,13 @@ def test_profile_uploaded_dataset():
     assert revenue_statistics["mean"] == 105.25
     assert len(profile["preview"]) == 2
 
+    quality = profile["quality"]
+
+    assert quality["score"] == 100.0
+    assert quality["missing_cell_count"] == 0
+    assert quality["completeness_percentage"] == 100.0
+    assert quality["duplicate_percentage"] == 0.0
+
 def test_profile_missing_dataset():
     response = client.get("/datasets/999/profile")
 

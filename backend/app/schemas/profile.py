@@ -19,6 +19,11 @@ class ColumnProfile(BaseModel):
     unique_count: int
     numeric_statistics: NumericStatistics | None = None
 
+class DataQualitySummary(BaseModel):
+    score: float
+    missing_cell_count: int
+    completeness_percentage: float
+    duplicate_percentage: float
 
 class DatasetProfile(BaseModel):
     dataset_id: int
@@ -28,4 +33,5 @@ class DatasetProfile(BaseModel):
     duplicate_row_count: int
     columns: list[ColumnProfile]
     preview: list[dict[str, Any]]
+    quality: DataQualitySummary
 

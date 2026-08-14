@@ -4,6 +4,7 @@ from typing import Any
 from pathlib import Path
 
 import pandas as pd
+from app.services.data_quality import evaluate_data_quality
 
 
 class InvalidCSVError(ValueError):
@@ -85,6 +86,7 @@ def profile_dataframe(dataframe: pd.DataFrame) -> dict[str, Any]:
         "duplicate_row_count": int(dataframe.duplicated().sum()),
         "columns": column_profiles,
         "preview": preview,
+        "quality": evaluate_data_quality(dataframe),
     }
 
 def profile_csv(file_path: Path) -> dict[str, Any]:
