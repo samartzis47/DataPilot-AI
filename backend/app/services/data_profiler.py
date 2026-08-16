@@ -38,6 +38,24 @@ def profile_dataframe(dataframe: pd.DataFrame) -> dict[str, Any]:
             non_null_series = series.dropna()
 
             if not non_null_series.empty:
+                first_quartile = float(non_null_series.quantile(0.25))
+                third_quartile = float(non_null_series.quantile(0.75))
+                interquartile_range = third_quartile - first_quartile
+
+                lower_bound = first_quartile - 1.5 * interquartile_range
+                upper_bound = third_quartile + 1.5 * interquartile_range
+
+                outlier_count = int(
+                    (
+                        (non_null_series < lower_bound)
+                        | (non_null_series > upper_bound)
+                    ).sum()
+                )
+
+                outlier_percentage = round(
+                    outlier_count / len(non_null_series) * 100,
+                    2,
+                )
                 numeric_statistics = {
                     "minimum": float(non_null_series.min()),
                     "maximum": float(non_null_series.max()),
@@ -47,14 +65,10 @@ def profile_dataframe(dataframe: pd.DataFrame) -> dict[str, Any]:
                         float(non_null_series.std(ddof=0)),
                         2,
                     ),
-                    "first_quartile": round(
-                        float(non_null_series.quantile(0.25)),
-                        2,
-                    ),
-                    "third_quartile": round(
-                        float(non_null_series.quantile(0.75)),
-                        2,
-                    ),
+                    "first_quartile": round(first_quartile, 2),
+                    "third_quartile": round(third_quartile, 2),
+                    "outlier_count": outlier_count,
+                    "outlier_percentage": outlier_percentage,
                 }
 
         column_profiles.append(

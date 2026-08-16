@@ -11,6 +11,8 @@ class NumericStatistics(BaseModel):
     standard_deviation: float
     first_quartile: float
     third_quartile: float
+    outlier_count: int
+    outlier_percentage: float
 
 class ColumnProfile(BaseModel):
     name: str
