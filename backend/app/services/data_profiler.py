@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 from app.services.data_quality import evaluate_data_quality
+from app.services.outlier_detection import calculate_iqr_statistics
 
 
 class InvalidCSVError(ValueError):
@@ -37,25 +38,13 @@ def profile_dataframe(dataframe: pd.DataFrame) -> dict[str, Any]:
         if pd.api.types.is_numeric_dtype(series):
             non_null_series = series.dropna()
 
-            if not non_null_series.empty:
-                first_quartile = float(non_null_series.quantile(0.25))
-                third_quartile = float(non_null_series.quantile(0.75))
-                interquartile_range = third_quartile - first_quartile
+            iqr_statistics = calculate_iqr_statistics(non_null_series)
 
-                lower_bound = first_quartile - 1.5 * interquartile_range
-                upper_bound = third_quartile + 1.5 * interquartile_range
-
-                outlier_count = int(
-                    (
-                        (non_null_series < lower_bound)
-                        | (non_null_series > upper_bound)
-                    ).sum()
-                )
-
-                outlier_percentage = round(
-                    outlier_count / len(non_null_series) * 100,
-                    2,
-                )
+            if iqr_statistics is not None:
+                first_quartile = iqr_statistics["first_quartile"]
+                third_quartile = iqr_statistics["third_quartile"]
+                outlier_count = iqr_statistics["outlier_count"]
+                outlier_percentage = iqr_statistics["outlier_percentage"]
                 numeric_statistics = {
                     "minimum": float(non_null_series.min()),
                     "maximum": float(non_null_series.max()),

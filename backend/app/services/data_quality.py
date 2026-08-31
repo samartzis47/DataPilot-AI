@@ -1,7 +1,7 @@
 from typing import Any
 
 import pandas as pd
-
+from app.services.outlier_detection import calculate_iqr_statistics
 
 def evaluate_data_quality(dataframe: pd.DataFrame) -> dict[str, Any]:
     row_count = len(dataframe)
@@ -71,32 +71,17 @@ def evaluate_data_quality(dataframe: pd.DataFrame) -> dict[str, Any]:
     numeric_columns = dataframe.select_dtypes(include="number").columns
 
     for column_name in numeric_columns:
-        non_null_series = dataframe[column_name].dropna()
+        iqr_statistics = calculate_iqr_statistics(dataframe[column_name])
 
-        if non_null_series.empty:
+        if iqr_statistics is None:
             continue
 
-        first_quartile = non_null_series.quantile(0.25)
-        third_quartile = non_null_series.quantile(0.75)
-        interquartile_range = third_quartile - first_quartile
-
-        lower_bound = first_quartile - 1.5 * interquartile_range
-        upper_bound = third_quartile + 1.5 * interquartile_range
-
-        outlier_count = int(
-            (
-                (non_null_series < lower_bound)
-                | (non_null_series > upper_bound)
-            ).sum()
-        )
+        outlier_count = iqr_statistics["outlier_count"]
 
         if outlier_count == 0:
             continue
 
-        outlier_percentage = round(
-            outlier_count / len(non_null_series) * 100,
-            2,
-        )
+        outlier_percentage = iqr_statistics["outlier_percentage"]
 
         if outlier_percentage >= 20:
             severity = "high"
