@@ -267,4 +267,162 @@ def test_profile_dataset_without_uploaded_file():
     response = client.get(f"/datasets/{dataset_id}/profile")
 
     assert response.status_code == 409
-    assert response.json() == {"detail": "Dataset has no uploaded file"}
+    assert response.json() == {
+        "detail": "Dataset has no uploaded file"
+    }
+
+
+def test_read_missing_analysis_returns_404():
+    create_response = client.post(
+        "/datasets",
+        json={
+            "original_filename": "sales.csv",
+            "content_type": "text/csv",
+            "size_bytes": 100,
+        },
+    )
+
+    assert create_response.status_code == 201
+    dataset_id = create_response.json()["id"]
+
+    response = client.get(
+        f"/datasets/{dataset_id}/analyses/999"
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "detail": "Dataset analysis not found"
+    }
+
+def test_create_and_read_analysis_without_source_file():
+    upload_response = client.post(
+        "/datasets/upload",
+        files={
+            "file": (
+                "sales.csv",
+                b"name,revenue\nAlice,120.50\nBob,89.99\n",
+                "text/csv",
+            )
+        },
+    )
+
+    assert upload_response.status_code == 201
+    dataset_id = upload_response.json()["id"]
+
+    profile_response = client.get(
+        f"/datasets/{dataset_id}/profile"
+    )
+    assert profile_response.status_code == 200
+
+    create_response = client.post(
+        f"/datasets/{dataset_id}/analyses"
+    )
+
+    assert create_response.status_code == 201
+    analysis = create_response.json()
+    assert analysis["id"] > 0
+    assert analysis["dataset_id"] == dataset_id
+    assert analysis["created_at"] is not None
+    assert analysis["report"] == profile_response.json()
+
+    with TestingSessionLocal() as db:
+        dataset = db.get(Dataset, dataset_id)
+        assert dataset is not None
+        assert dataset.stored_filename is not None
+        stored_file = settings.upload_dir / dataset.stored_filename
+
+    stored_file.unlink()
+
+    read_response = client.get(
+        f"/datasets/{dataset_id}/analyses/{analysis['id']}"
+    )
+
+    assert read_response.status_code == 200
+    assert read_response.json() == analysis
+
+def test_repeated_analyses_create_separate_snapshots():
+    upload_response = client.post(
+        "/datasets/upload",
+        files={
+            "file": (
+                "sales.csv",
+                b"name,revenue\nAlice,120.50\nBob,89.99\n",
+                "text/csv",
+            )
+        },
+    )
+
+    assert upload_response.status_code == 201
+    dataset_id = upload_response.json()["id"]
+
+    first_response = client.post(
+        f"/datasets/{dataset_id}/analyses"
+    )
+    assert first_response.status_code == 201
+    first_analysis = first_response.json()
+
+    with TestingSessionLocal() as db:
+        dataset = db.get(Dataset, dataset_id)
+        assert dataset is not None
+        assert dataset.stored_filename is not None
+        stored_file = settings.upload_dir / dataset.stored_filename
+
+    stored_file.write_bytes(
+        b"name,revenue\n"
+        b"Alice,120.50\n"
+        b"Bob,89.99\n"
+        b"Charlie,150.00\n"
+    )
+
+    second_response = client.post(
+        f"/datasets/{dataset_id}/analyses"
+    )
+    assert second_response.status_code == 201
+    second_analysis = second_response.json()
+
+    assert first_analysis["id"] != second_analysis["id"]
+    assert first_analysis["report"]["row_count"] == 2
+    assert second_analysis["report"]["row_count"] == 3
+
+    first_read_response = client.get(
+        f"/datasets/{dataset_id}/analyses/{first_analysis['id']}"
+    )
+    second_read_response = client.get(
+        f"/datasets/{dataset_id}/analyses/{second_analysis['id']}"
+    )
+
+    assert first_read_response.status_code == 200
+    assert second_read_response.status_code == 200
+    assert first_read_response.json() == first_analysis
+    assert second_read_response.json() == second_analysis
+
+def test_create_analysis_for_missing_dataset_returns_404():
+    response = client.post("/datasets/999/analyses")
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "detail": "Dataset not found"
+    }
+
+
+def test_create_analysis_without_uploaded_file_returns_409():
+    create_response = client.post(
+        "/datasets",
+        json={
+            "original_filename": "metadata.csv",
+            "content_type": "text/csv",
+            "size_bytes": 100,
+        },
+    )
+
+    assert create_response.status_code == 201
+    dataset_id = create_response.json()["id"]
+
+    response = client.post(
+        f"/datasets/{dataset_id}/analyses"
+    )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": "Dataset has no uploaded file"
+    }

@@ -19,6 +19,11 @@ from app.services.file_storage import (
 from app.core.config import settings
 from app.schemas.profile import DatasetProfile
 from app.services.data_profiler import InvalidCSVError, profile_csv
+from app.crud.dataset_analysis import (
+    create_dataset_analysis,
+    get_dataset_analysis,
+)
+from app.schemas.dataset_analysis import DatasetAnalysisRead
 
 router = APIRouter(
     prefix="/datasets",
@@ -62,11 +67,10 @@ async def upload_dataset(
         delete_stored_file(stored_filename)
         raise
 
-@router.get("/{dataset_id}/profile", response_model=DatasetProfile)
-def get_dataset_profile(
+def _build_dataset_profile(
     dataset_id: int,
-    db: Annotated[Session, Depends(get_db)],
-):
+    db: Session,
+) -> DatasetProfile:
     dataset = get_dataset(db, dataset_id)
 
     if dataset is None:
@@ -97,11 +101,64 @@ def get_dataset_profile(
             detail=str(exc),
         ) from exc
 
-    return {
-        "dataset_id": dataset.id,
-        "original_filename": dataset.original_filename,
+    return DatasetProfile(
+        dataset_id=dataset.id,
+        original_filename=dataset.original_filename,
         **profile,
-    }
+    )
+
+
+@router.get("/{dataset_id}/profile", response_model=DatasetProfile)
+def get_dataset_profile(
+    dataset_id: int,
+    db: Annotated[Session, Depends(get_db)],
+):
+    return _build_dataset_profile(dataset_id, db)
+@router.post(
+    "/{dataset_id}/analyses",
+    response_model=DatasetAnalysisRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_dataset_analysis_endpoint(
+    dataset_id: int,
+    db: Annotated[Session, Depends(get_db)],
+):
+    profile = _build_dataset_profile(dataset_id, db)
+    return create_dataset_analysis(db, profile)
+
+
+@router.get(
+    "/{dataset_id}/analyses/{analysis_id}",
+    response_model=DatasetAnalysisRead,
+)
+def read_dataset_analysis(
+    dataset_id: int,
+    analysis_id: int,
+    db: Annotated[Session, Depends(get_db)],
+):
+    dataset = get_dataset(db, dataset_id)
+
+    if dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
+
+    analysis = get_dataset_analysis(
+        db,
+        dataset_id=dataset_id,
+        analysis_id=analysis_id,
+    )
+
+    if analysis is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset analysis not found",
+        )
+
+    return analysis
+
+
 
 @router.get("/{dataset_id}", response_model=DatasetRead)
 def read_dataset(
