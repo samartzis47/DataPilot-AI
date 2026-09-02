@@ -396,6 +396,24 @@ def test_repeated_analyses_create_separate_snapshots():
     assert first_read_response.json() == first_analysis
     assert second_read_response.json() == second_analysis
 
+    list_response = client.get(
+        f"/datasets/{dataset_id}/analyses"
+    )
+
+    assert list_response.status_code == 200
+    analyses = list_response.json()
+    assert [item["id"] for item in analyses] == [
+        second_analysis["id"],
+        first_analysis["id"],
+    ]
+
+    paginated_response = client.get(
+        f"/datasets/{dataset_id}/analyses?limit=1&offset=1"
+    )
+
+    assert paginated_response.status_code == 200
+    assert paginated_response.json() == [first_analysis]
+
 def test_create_analysis_for_missing_dataset_returns_404():
     response = client.post("/datasets/999/analyses")
 

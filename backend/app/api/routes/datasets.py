@@ -24,6 +24,12 @@ from app.crud.dataset_analysis import (
     get_dataset_analysis,
 )
 from app.schemas.dataset_analysis import DatasetAnalysisRead
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from app.crud.dataset_analysis import (
+    create_dataset_analysis,
+    get_dataset_analysis,
+    get_dataset_analyses,
+)
 
 router = APIRouter(
     prefix="/datasets",
@@ -125,6 +131,32 @@ def create_dataset_analysis_endpoint(
 ):
     profile = _build_dataset_profile(dataset_id, db)
     return create_dataset_analysis(db, profile)
+
+@router.get(
+    "/{dataset_id}/analyses",
+    response_model=list[DatasetAnalysisRead],
+)
+def list_dataset_analyses_endpoint(
+    dataset_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
+):
+    dataset = get_dataset(db, dataset_id)
+
+    if dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
+
+    return get_dataset_analyses(
+        db,
+        dataset_id=dataset_id,
+        limit=limit,
+        offset=offset,
+    )
+
 
 
 @router.get(

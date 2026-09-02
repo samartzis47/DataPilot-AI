@@ -33,3 +33,20 @@ def get_dataset_analysis(
     )
 
     return db.scalar(statement)
+
+def get_dataset_analyses(
+    db: Session,
+    *,
+    dataset_id: int,
+    limit: int = 20,
+    offset: int = 0,
+) -> list[DatasetAnalysis]:
+    statement = (
+        select(DatasetAnalysis)
+        .where(DatasetAnalysis.dataset_id == dataset_id)
+        .order_by(DatasetAnalysis.id.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+
+    return list(db.scalars(statement).all())
