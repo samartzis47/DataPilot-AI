@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     Environment: str = "development"
     upload_dir: Path = BACKEND_DIR / "storage" / "uploads"
     max_upload_size_bytes: int = 10 * 1024 * 1024
+    redis_url: str = Field(
+        default="redis://localhost:6379/0",
+        validation_alias="REDIS_URL",
+    )
 
     postgres_db: str = Field(validation_alias="POSTGRES_DB")
     postgres_user: str = Field(validation_alias="POSTGRES_USER")

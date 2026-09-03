@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -9,6 +9,7 @@ from app.db.base import Base
 from app.main import app
 from app.core.config import settings
 from app.models.dataset import Dataset
+from app.models.processing_job import ProcessingJob
 
 
 test_engine = create_engine(
@@ -444,3 +445,142 @@ def test_create_analysis_without_uploaded_file_returns_409():
     assert response.json() == {
         "detail": "Dataset has no uploaded file"
     }
+
+def test_create_and_read_analysis_job(monkeypatch):
+    csv_content = (
+        b"name,revenue\n"
+        b"Alice,120.50\n"
+        b"Bob,89.99\n"
+    )
+
+    upload_response = client.post(
+        "/datasets/upload",
+        files={
+            "file": (
+                "sales.csv",
+                csv_content,
+                "text/csv",
+            )
+        },
+    )
+
+    assert upload_response.status_code == 201
+    dataset_id = upload_response.json()["id"]
+
+    queued_task = {}
+
+    def fake_apply_async(*, kwargs, task_id):
+        queued_task["kwargs"] = kwargs
+        queued_task["task_id"] = task_id
+
+    monkeypatch.setattr(
+        (
+            "app.api.routes.datasets."
+            "process_dataset_analysis.apply_async"
+        ),
+        fake_apply_async,
+    )
+
+    response = client.post(
+        f"/datasets/{dataset_id}/analysis-jobs"
+    )
+
+    assert response.status_code == 202
+
+    job = response.json()
+
+    assert job["dataset_id"] == dataset_id
+    assert job["analysis_id"] is None
+    assert job["job_type"] == "dataset_profile"
+    assert job["status"] == "queued"
+    assert job["attempt_count"] == 0
+    assert job["error_message"] is None
+    assert job["task_id"] is not None
+
+    assert queued_task == {
+        "kwargs": {
+            "job_id": job["id"],
+            "dataset_id": dataset_id,
+        },
+        "task_id": job["task_id"],
+    }
+
+    read_response = client.get(
+        f"/datasets/{dataset_id}/analysis-jobs/{job['id']}"
+    )
+
+    assert read_response.status_code == 200
+    assert read_response.json() == job
+
+
+def test_create_analysis_job_for_missing_dataset_returns_404(
+    monkeypatch,
+):
+    def fake_apply_async(*, kwargs, task_id):
+        raise AssertionError("Task must not be queued")
+
+    monkeypatch.setattr(
+        (
+            "app.api.routes.datasets."
+            "process_dataset_analysis.apply_async"
+        ),
+        fake_apply_async,
+    )
+
+    response = client.post(
+        "/datasets/999/analysis-jobs"
+    )
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "detail": "Dataset not found"
+    }
+
+
+def test_analysis_job_is_failed_when_queue_is_unavailable(
+    monkeypatch,
+):
+    csv_content = b"name,revenue\nAlice,120.50\n"
+
+    upload_response = client.post(
+        "/datasets/upload",
+        files={
+            "file": (
+                "sales.csv",
+                csv_content,
+                "text/csv",
+            )
+        },
+    )
+
+    assert upload_response.status_code == 201
+    dataset_id = upload_response.json()["id"]
+
+    def failing_apply_async(*, kwargs, task_id):
+        raise ConnectionError("Redis unavailable")
+
+    monkeypatch.setattr(
+        (
+            "app.api.routes.datasets."
+            "process_dataset_analysis.apply_async"
+        ),
+        failing_apply_async,
+    )
+
+    response = client.post(
+        f"/datasets/{dataset_id}/analysis-jobs"
+    )
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "Analysis queue unavailable"
+    }
+
+    with TestingSessionLocal() as db:
+        job = db.scalar(select(ProcessingJob))
+
+        assert job is not None
+        assert job.dataset_id == dataset_id
+        assert job.status == "failed"
+        assert job.error_message == "Analysis queue unavailable"
+        assert job.finished_at is not None

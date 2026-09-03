@@ -1,35 +1,54 @@
+from uuid import uuid4
 from pathlib import Path
 from typing import Annotated
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_db 
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
-from app.schemas.dataset import DatasetRead, DatasetCreate
-from app.crud.dataset import get_datasets, get_dataset, create_dataset, create_uploaded_dataset
+from app.crud.processing_job import (
+    create_processing_job,
+    get_processing_job,
+    mark_processing_job_failed,
+)
+from app.crud.dataset import (
+    create_dataset,
+    create_uploaded_dataset,
+    get_dataset,
+    get_datasets,
+)
+from app.crud.dataset_analysis import (
+    create_dataset_analysis,
+    get_dataset_analyses,
+    get_dataset_analysis,
+)
+from app.schemas.dataset import DatasetCreate, DatasetRead
+from app.schemas.dataset_analysis import DatasetAnalysisRead
+from app.schemas.profile import DatasetProfile
+from app.services.dataset_analysis import (
+    DatasetFileNotFoundError,
+    DatasetNotFoundError,
+    DatasetProfilingError,
+    DatasetWithoutUploadedFileError,
+    build_dataset_profile,
+    get_dataset_file_path,
+)
 from app.services.file_storage import (
     FileTooLargeError,
     InvalidFileError,
     delete_stored_file,
     save_csv_file,
 )
-
-from app.core.config import settings
-from app.schemas.profile import DatasetProfile
-from app.services.data_profiler import InvalidCSVError, profile_csv
-from app.crud.dataset_analysis import (
-    create_dataset_analysis,
-    get_dataset_analysis,
-)
-from app.schemas.dataset_analysis import DatasetAnalysisRead
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
-from app.crud.dataset_analysis import (
-    create_dataset_analysis,
-    get_dataset_analysis,
-    get_dataset_analyses,
-)
+from app.schemas.processing_job import ProcessingJobRead
+from app.tasks.dataset_analysis import process_dataset_analysis
 
 router = APIRouter(
     prefix="/datasets",
@@ -77,41 +96,31 @@ def _build_dataset_profile(
     dataset_id: int,
     db: Session,
 ) -> DatasetProfile:
-    dataset = get_dataset(db, dataset_id)
-
-    if dataset is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Dataset not found",
-        )
-
-    if dataset.stored_filename is None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Dataset has no uploaded file",
-        )
-
-    file_path = settings.upload_dir / Path(dataset.stored_filename).name
-
-    if not file_path.is_file():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Dataset file not found",
-        )
-
     try:
-        profile = profile_csv(file_path)
-    except InvalidCSVError as exc:
+        return build_dataset_profile(
+            db,
+            dataset_id=dataset_id,
+        )
+    except DatasetNotFoundError as exc:
         raise HTTPException(
-            status_code=422,
+            status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         ) from exc
-
-    return DatasetProfile(
-        dataset_id=dataset.id,
-        original_filename=dataset.original_filename,
-        **profile,
-    )
+    except DatasetWithoutUploadedFileError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except DatasetFileNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except DatasetProfilingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
 
 
 @router.get("/{dataset_id}/profile", response_model=DatasetProfile)
@@ -131,6 +140,97 @@ def create_dataset_analysis_endpoint(
 ):
     profile = _build_dataset_profile(dataset_id, db)
     return create_dataset_analysis(db, profile)
+@router.post(
+    "/{dataset_id}/analysis-jobs",
+    response_model=ProcessingJobRead,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def create_analysis_job(
+    dataset_id: int,
+    db: Annotated[Session, Depends(get_db)],
+):
+    try:
+        get_dataset_file_path(
+            db,
+            dataset_id=dataset_id,
+        )
+    except DatasetNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except DatasetWithoutUploadedFileError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    except DatasetFileNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    task_id = str(uuid4())
+
+    job = create_processing_job(
+        db,
+        dataset_id=dataset_id,
+        task_id=task_id,
+    )
+
+    try:
+        process_dataset_analysis.apply_async(
+            kwargs={
+                "job_id": job.id,
+                "dataset_id": dataset_id,
+            },
+            task_id=task_id,
+        )
+    except Exception as exc:
+        mark_processing_job_failed(
+            db,
+            job,
+            error_message="Analysis queue unavailable",
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Analysis queue unavailable",
+        ) from exc
+
+    return job
+
+
+@router.get(
+    "/{dataset_id}/analysis-jobs/{job_id}",
+    response_model=ProcessingJobRead,
+)
+def read_analysis_job(
+    dataset_id: int,
+    job_id: int,
+    db: Annotated[Session, Depends(get_db)],
+):
+    dataset = get_dataset(db, dataset_id)
+
+    if dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
+
+    job = get_processing_job(
+        db,
+        dataset_id=dataset_id,
+        job_id=job_id,
+    )
+
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Processing job not found",
+        )
+
+    return job
 
 @router.get(
     "/{dataset_id}/analyses",

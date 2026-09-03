@@ -23,5 +23,62 @@ services:
       timeout: 5s
       retries: 10
 
+  redis:
+    image: redis:7.4-alpine
+    container_name: datapilot-redis
+    restart: unless-stopped
+
+    ports:
+      - "6379:6379"
+
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+      ]
+
+    volumes:
+      - redis_data:/data
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  worker:
+    build:
+      context: ./backend
+
+    container_name: datapilot-worker
+    restart: unless-stopped
+
+    command:
+      [
+        "celery",
+        "-A",
+        "app.core.celery_app:celery_app",
+        "worker",
+        "--loglevel=INFO",
+      ]
+
+    env_file:
+      - ./backend/.env
+
+    environment:
+      POSTGRES_HOST: db
+      REDIS_URL: redis://redis:6379/0
+
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    volumes:
+      - ./backend/storage:/app/storage
+
 volumes:
-  postgres_data:  
+  postgres_data:
+  redis_data:

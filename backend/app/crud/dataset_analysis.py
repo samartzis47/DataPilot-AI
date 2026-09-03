@@ -8,6 +8,8 @@ from app.schemas.profile import DatasetProfile
 def create_dataset_analysis(
     db: Session,
     profile: DatasetProfile,
+    *,
+    commit: bool = True,
 ) -> DatasetAnalysis:
     analysis = DatasetAnalysis(
         dataset_id=profile.dataset_id,
@@ -15,11 +17,14 @@ def create_dataset_analysis(
     )
 
     db.add(analysis)
-    db.commit()
-    db.refresh(analysis)
+
+    if commit:
+        db.commit()
+        db.refresh(analysis)
+    else:
+        db.flush()
 
     return analysis
-
 
 def get_dataset_analysis(
     db: Session,
