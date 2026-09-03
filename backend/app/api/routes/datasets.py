@@ -17,6 +17,7 @@ from app.api.dependencies import get_db
 from app.crud.processing_job import (
     create_processing_job,
     get_processing_job,
+    get_processing_jobs,
     mark_processing_job_failed,
 )
 from app.crud.dataset import (
@@ -199,6 +200,31 @@ def create_analysis_job(
         ) from exc
 
     return job
+
+@router.get(
+    "/{dataset_id}/analysis-jobs",
+    response_model=list[ProcessingJobRead],
+)
+def list_analysis_jobs(
+    dataset_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
+):
+    dataset = get_dataset(db, dataset_id)
+
+    if dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
+
+    return get_processing_jobs(
+        db,
+        dataset_id=dataset_id,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get(

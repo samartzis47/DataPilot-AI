@@ -10,6 +10,8 @@ from app.main import app
 from app.core.config import settings
 from app.models.dataset import Dataset
 from app.models.processing_job import ProcessingJob
+from app.crud.processing_job import create_processing_job
+from app.tasks.dataset_analysis import process_dataset_analysis
 
 
 test_engine = create_engine(
@@ -584,3 +586,127 @@ def test_analysis_job_is_failed_when_queue_is_unavailable(
         assert job.status == "failed"
         assert job.error_message == "Analysis queue unavailable"
         assert job.finished_at is not None
+
+def test_list_analysis_jobs_uses_pagination_and_newest_first(
+    monkeypatch,
+):
+    csv_content = b"name,revenue\nAlice,120.50\n"
+
+    upload_response = client.post(
+        "/datasets/upload",
+        files={
+            "file": (
+                "sales.csv",
+                csv_content,
+                "text/csv",
+            )
+        },
+    )
+
+    assert upload_response.status_code == 201
+    dataset_id = upload_response.json()["id"]
+
+    def fake_apply_async(*, kwargs, task_id):
+        return None
+
+    monkeypatch.setattr(
+        (
+            "app.api.routes.datasets."
+            "process_dataset_analysis.apply_async"
+        ),
+        fake_apply_async,
+    )
+
+    first_response = client.post(
+        f"/datasets/{dataset_id}/analysis-jobs"
+    )
+    second_response = client.post(
+        f"/datasets/{dataset_id}/analysis-jobs"
+    )
+
+    assert first_response.status_code == 202
+    assert second_response.status_code == 202
+
+    first_job_id = first_response.json()["id"]
+    second_job_id = second_response.json()["id"]
+
+    first_page = client.get(
+        f"/datasets/{dataset_id}/analysis-jobs"
+        "?limit=1&offset=0"
+    )
+
+    assert first_page.status_code == 200
+    assert len(first_page.json()) == 1
+    assert first_page.json()[0]["id"] == second_job_id
+
+    second_page = client.get(
+        f"/datasets/{dataset_id}/analysis-jobs"
+        "?limit=1&offset=1"
+    )
+
+    assert second_page.status_code == 200
+    assert len(second_page.json()) == 1
+    assert second_page.json()[0]["id"] == first_job_id
+
+
+def test_processing_task_completes_job_and_creates_analysis(
+    monkeypatch,
+):
+    csv_content = (
+        b"name,revenue\n"
+        b"Alice,120.50\n"
+        b"Bob,89.99\n"
+    )
+
+    upload_response = client.post(
+        "/datasets/upload",
+        files={
+            "file": (
+                "sales.csv",
+                csv_content,
+                "text/csv",
+            )
+        },
+    )
+
+    assert upload_response.status_code == 201
+    dataset_id = upload_response.json()["id"]
+
+    with TestingSessionLocal() as db:
+        job = create_processing_job(
+            db,
+            dataset_id=dataset_id,
+            task_id="test-task-id",
+        )
+        job_id = job.id
+
+    monkeypatch.setattr(
+        "app.tasks.dataset_analysis.SessionLocal",
+        TestingSessionLocal,
+    )
+
+    analysis_id = process_dataset_analysis.run(
+        job_id,
+        dataset_id,
+    )
+
+    assert analysis_id is not None
+
+    with TestingSessionLocal() as db:
+        completed_job = db.get(ProcessingJob, job_id)
+
+        assert completed_job is not None
+        assert completed_job.status == "succeeded"
+        assert completed_job.attempt_count == 1
+        assert completed_job.analysis_id == analysis_id
+        assert completed_job.error_message is None
+        assert completed_job.started_at is not None
+        assert completed_job.finished_at is not None
+
+    analysis_response = client.get(
+        f"/datasets/{dataset_id}/analyses/{analysis_id}"
+    )
+
+    assert analysis_response.status_code == 200
+    assert analysis_response.json()["dataset_id"] == dataset_id
+    assert analysis_response.json()["report"]["row_count"] == 2
