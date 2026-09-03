@@ -11,6 +11,8 @@ def test_iqr_excludes_missing_values_from_percentage():
     assert statistics is not None
     assert statistics["outlier_count"] == 1
     assert statistics["outlier_percentage"] == 20.0
+    assert statistics["lower_bound"] == 8.0
+    assert statistics["upper_bound"] == 16.0
 
 
 def test_iqr_returns_none_for_all_missing_values():

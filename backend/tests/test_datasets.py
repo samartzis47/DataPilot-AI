@@ -1,5 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
+from unittest.mock import patch
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -41,7 +42,9 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def reset_test_environment(tmp_path):
     original_upload_dir = settings.upload_dir
+    original_cleaned_dir = settings.cleaned_dir
     settings.upload_dir = tmp_path / "uploads"
+    settings.cleaned_dir = tmp_path / "cleaned"
 
     Base.metadata.create_all(bind=test_engine)
 
@@ -49,6 +52,7 @@ def reset_test_environment(tmp_path):
 
     Base.metadata.drop_all(bind=test_engine)
     settings.upload_dir = original_upload_dir
+    settings.cleaned_dir = original_cleaned_dir
 
 def test_list_datasets_returns_empty_list():
     response = client.get("/datasets")
@@ -198,6 +202,158 @@ def test_upload_rejects_file_over_size_limit(monkeypatch):
         not settings.upload_dir.exists()
         or list(settings.upload_dir.iterdir()) == []
     )
+
+
+def upload_cleaning_fixture():
+    csv_content = (
+        b"name,age,score\n"
+        b"Alice,10,10\n"
+        b"Bob,,11\n"
+        b"Bob,,11\n"
+        b",30,12\n"
+        b"Eve,40,1000\n"
+    )
+    response = client.post(
+        "/datasets/upload",
+        files={"file": ("people.csv", csv_content, "text/csv")},
+    )
+    assert response.status_code == 201
+    return response.json()["id"], csv_content
+
+
+def test_create_cleaning_persists_without_changing_original():
+    dataset_id, original_content = upload_cleaning_fixture()
+
+    response = client.post(
+        f"/datasets/{dataset_id}/cleanings",
+        json={
+            "remove_duplicate_rows": True,
+            "numeric_missing_strategy": "mean",
+            "text_missing_strategy": "mode",
+            "numeric_outlier_strategy": "clip_iqr",
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["summary"] == {
+        "duplicate_rows_removed": 1,
+        "missing_values_filled": 2,
+        "outlier_values_clipped": 1,
+        "outlier_values_removed": 0,
+        "outlier_rows_removed": 0,
+        "original_row_count": 5,
+        "cleaned_row_count": 4,
+    }
+    assert body["cleaning_config"]["numeric_outlier_strategy"] == "clip_iqr"
+
+    with TestingSessionLocal() as db:
+        dataset = db.get(Dataset, dataset_id)
+        assert dataset is not None
+        assert (settings.upload_dir / dataset.stored_filename).read_bytes() == original_content
+
+    download_response = client.get(
+        f"/datasets/{dataset_id}/cleanings/{body['id']}/download"
+    )
+    assert download_response.status_code == 200
+    assert download_response.headers["content-type"].startswith("text/csv")
+    assert download_response.text.splitlines()[0] == "name,age,score"
+    assert "1000" not in download_response.text
+
+
+def test_cleaning_history_is_newest_first_and_paginated():
+    dataset_id, _ = upload_cleaning_fixture()
+    first = client.post(f"/datasets/{dataset_id}/cleanings", json={})
+    second = client.post(f"/datasets/{dataset_id}/cleanings", json={})
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    history = client.get(f"/datasets/{dataset_id}/cleanings?limit=1&offset=0")
+    page = client.get(f"/datasets/{dataset_id}/cleanings?limit=1&offset=1")
+
+    assert history.status_code == 200
+    assert [item["id"] for item in history.json()] == [second.json()["id"]]
+    assert [item["id"] for item in page.json()] == [first.json()["id"]]
+
+
+def test_cleaning_removes_iqr_outlier_rows():
+    dataset_id, _ = upload_cleaning_fixture()
+    response = client.post(
+        f"/datasets/{dataset_id}/cleanings",
+        json={"numeric_outlier_strategy": "remove"},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["summary"]["outlier_rows_removed"] == 1
+    assert response.json()["cleaned_row_count"] == 4
+
+
+def test_cleaning_errors_and_invalid_strategy():
+    missing_dataset = client.post("/datasets/999/cleanings", json={})
+    assert missing_dataset.status_code == 404
+
+    dataset_response = client.post(
+        "/datasets",
+        json={
+            "original_filename": "manual.csv",
+            "content_type": "text/csv",
+            "size_bytes": 1,
+        },
+    )
+    dataset_id = dataset_response.json()["id"]
+    without_file = client.post(f"/datasets/{dataset_id}/cleanings", json={})
+    assert without_file.status_code == 409
+
+    invalid = client.post(
+        "/datasets/999/cleanings",
+        json={"numeric_missing_strategy": "invalid"},
+    )
+    assert invalid.status_code == 422
+
+    missing_cleaning = client.get(f"/datasets/{dataset_id}/cleanings/999")
+    assert missing_cleaning.status_code == 404
+
+
+def test_cleaning_returns_404_for_missing_source_file():
+    dataset_id, _ = upload_cleaning_fixture()
+    with TestingSessionLocal() as db:
+        dataset = db.get(Dataset, dataset_id)
+        assert dataset is not None
+        (settings.upload_dir / dataset.stored_filename).unlink()
+
+    response = client.post(f"/datasets/{dataset_id}/cleanings", json={})
+    assert response.status_code == 404
+
+
+def test_download_returns_404_for_missing_cleaned_file():
+    dataset_id, _ = upload_cleaning_fixture()
+    response = client.post(f"/datasets/{dataset_id}/cleanings", json={})
+    cleaning_id = response.json()["id"]
+    stored_filename = response.json()["stored_filename"]
+    (settings.cleaned_dir / stored_filename).unlink()
+
+    download_response = client.get(
+        f"/datasets/{dataset_id}/cleanings/{cleaning_id}/download"
+    )
+    assert download_response.status_code == 404
+
+
+def test_cleaning_database_failure_removes_output_but_preserves_original():
+    dataset_id, original_content = upload_cleaning_fixture()
+    with TestingSessionLocal() as db:
+        dataset = db.get(Dataset, dataset_id)
+        assert dataset is not None
+        original_path = settings.upload_dir / dataset.stored_filename
+
+    with patch(
+        "app.api.routes.datasets.create_cleaned_dataset",
+        side_effect=RuntimeError("database unavailable"),
+    ):
+        with pytest.raises(RuntimeError, match="database unavailable"):
+            client.post(f"/datasets/{dataset_id}/cleanings", json={})
+
+    assert list(settings.cleaned_dir.glob("*.csv")) == []
+    assert original_path.read_bytes() == original_content
 
 def test_profile_uploaded_dataset():
     upload_response = client.post(

@@ -12,8 +12,10 @@ from fastapi import (
     status,
 )
 from sqlalchemy.orm import Session
+from starlette.responses import FileResponse
 
 from app.api.dependencies import get_db
+from app.core.config import settings
 from app.crud.processing_job import (
     create_processing_job,
     get_processing_job,
@@ -31,7 +33,13 @@ from app.crud.dataset_analysis import (
     get_dataset_analyses,
     get_dataset_analysis,
 )
+from app.crud.cleaned_dataset import (
+    create_cleaned_dataset,
+    get_cleaned_dataset,
+    get_cleaned_datasets,
+)
 from app.schemas.dataset import DatasetCreate, DatasetRead
+from app.schemas.cleaned_dataset import CleaningRequest, CleanedDatasetRead
 from app.schemas.dataset_analysis import DatasetAnalysisRead
 from app.schemas.profile import DatasetProfile
 from app.services.dataset_analysis import (
@@ -48,6 +56,11 @@ from app.services.file_storage import (
     delete_stored_file,
     save_csv_file,
 )
+from app.services.data_cleaning import (
+    DatasetCleaningError,
+    clean_dataset_file,
+    delete_cleaned_file,
+)
 from app.schemas.processing_job import ProcessingJobRead
 from app.tasks.dataset_analysis import process_dataset_analysis
 
@@ -61,6 +74,100 @@ def list_datasets(
     db: Annotated[Session, Depends(get_db)],
 ):
     return get_datasets(db)
+
+
+@router.post(
+    "/{dataset_id}/cleanings",
+    response_model=CleanedDatasetRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_cleaning(
+    dataset_id: int,
+    cleaning_request: CleaningRequest,
+    db: Annotated[Session, Depends(get_db)],
+):
+    try:
+        dataset, source_path = get_dataset_file_path(db, dataset_id=dataset_id)
+    except DatasetNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except DatasetWithoutUploadedFileError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except DatasetFileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    try:
+        output_filename, stored_filename, summary = clean_dataset_file(
+            source_path,
+            dataset.original_filename,
+            cleaning_request,
+        )
+    except DatasetCleaningError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    try:
+        return create_cleaned_dataset(
+            db,
+            dataset_id=dataset_id,
+            original_filename=output_filename,
+            stored_filename=stored_filename,
+            cleaning_config=cleaning_request.model_dump(),
+            summary=summary,
+            original_row_count=summary["original_row_count"],
+            cleaned_row_count=summary["cleaned_row_count"],
+        )
+    except Exception:
+        db.rollback()
+        delete_cleaned_file(stored_filename)
+        raise
+
+
+@router.get(
+    "/{dataset_id}/cleanings",
+    response_model=list[CleanedDatasetRead],
+)
+def list_cleanings(
+    dataset_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
+):
+    if get_dataset(db, dataset_id) is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    return get_cleaned_datasets(db, dataset_id=dataset_id, limit=limit, offset=offset)
+
+
+@router.get(
+    "/{dataset_id}/cleanings/{cleaning_id}",
+    response_model=CleanedDatasetRead,
+)
+def read_cleaning(
+    dataset_id: int,
+    cleaning_id: int,
+    db: Annotated[Session, Depends(get_db)],
+):
+    if get_dataset(db, dataset_id) is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    cleaning = get_cleaned_dataset(db, dataset_id=dataset_id, cleaning_id=cleaning_id)
+    if cleaning is None:
+        raise HTTPException(status_code=404, detail="Cleaning not found")
+    return cleaning
+
+
+@router.get("/{dataset_id}/cleanings/{cleaning_id}/download")
+def download_cleaning(
+    dataset_id: int,
+    cleaning_id: int,
+    db: Annotated[Session, Depends(get_db)],
+):
+    if get_dataset(db, dataset_id) is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    cleaning = get_cleaned_dataset(db, dataset_id=dataset_id, cleaning_id=cleaning_id)
+    if cleaning is None:
+        raise HTTPException(status_code=404, detail="Cleaning not found")
+    file_path = settings.cleaned_dir / Path(cleaning.stored_filename).name
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="Cleaned file not found")
+    return FileResponse(file_path, media_type="text/csv", filename=cleaning.original_filename)
 
 @router.post(
     "/upload",

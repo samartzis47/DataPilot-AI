@@ -26,6 +26,8 @@ def calculate_iqr_statistics(
     return {
         "first_quartile": first_quartile,
         "third_quartile": third_quartile,
+        "lower_bound": lower_bound,
+        "upper_bound": upper_bound,
         "outlier_count": outlier_count,
         "outlier_percentage": round(
             outlier_count / len(non_null_series) * 100,

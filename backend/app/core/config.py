@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     )   
     Environment: str = "development"
     upload_dir: Path = BACKEND_DIR / "storage" / "uploads"
+    cleaned_dir: Path = BACKEND_DIR / "storage" / "cleaned"
     max_upload_size_bytes: int = 10 * 1024 * 1024
     redis_url: str = Field(
         default="redis://localhost:6379/0",

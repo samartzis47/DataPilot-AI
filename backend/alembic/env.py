@@ -10,6 +10,7 @@ from app.core.config import settings
 from app.models.dataset import Dataset
 from app.models.dataset_analysis import DatasetAnalysis
 from app.models.processing_job import ProcessingJob
+from app.models.cleaned_dataset import CleanedDataset
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
