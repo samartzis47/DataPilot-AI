@@ -20,6 +20,25 @@ class Settings(BaseSettings):
         default="redis://localhost:6379/0",
         validation_alias="REDIS_URL",
     )
+    openai_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias="OPENAI_API_KEY",
+    )
+    openai_model: str = Field(
+        default="gpt-4o-mini",
+        validation_alias="OPENAI_MODEL",
+    )
+    openai_timeout_seconds: float = Field(
+        default=30.0,
+        validation_alias="OPENAI_TIMEOUT_SECONDS",
+        gt=0,
+    )
+    openai_max_retries: int = Field(
+        default=2,
+        validation_alias="OPENAI_MAX_RETRIES",
+        ge=0,
+        le=5,
+    )
 
     postgres_db: str = Field(validation_alias="POSTGRES_DB")
     postgres_user: str = Field(validation_alias="POSTGRES_USER")

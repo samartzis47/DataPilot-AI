@@ -33,6 +33,12 @@ from app.crud.dataset_analysis import (
     get_dataset_analyses,
     get_dataset_analysis,
 )
+from app.crud.dataset_insight import (
+    create_dataset_insight,
+    get_dataset_insight,
+    get_dataset_insights,
+    get_newest_dataset_analysis,
+)
 from app.crud.cleaned_dataset import (
     create_cleaned_dataset,
     get_cleaned_dataset,
@@ -41,6 +47,10 @@ from app.crud.cleaned_dataset import (
 from app.schemas.dataset import DatasetCreate, DatasetRead
 from app.schemas.cleaned_dataset import CleaningRequest, CleanedDatasetRead
 from app.schemas.dataset_analysis import DatasetAnalysisRead
+from app.schemas.dataset_insight import (
+    DatasetInsightRead,
+    InsightGenerationRequest,
+)
 from app.schemas.profile import DatasetProfile
 from app.services.dataset_analysis import (
     DatasetFileNotFoundError,
@@ -63,6 +73,11 @@ from app.services.data_cleaning import (
 )
 from app.schemas.processing_job import ProcessingJobRead
 from app.tasks.dataset_analysis import process_dataset_analysis
+from app.services.insight_generation import (
+    InsightGenerationError,
+    InsightProviderNotConfiguredError,
+    generate_insight,
+)
 
 router = APIRouter(
     prefix="/datasets",
@@ -422,6 +437,98 @@ def read_dataset_analysis(
         )
 
     return analysis
+
+
+@router.post(
+    "/{dataset_id}/insights",
+    response_model=DatasetInsightRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_dataset_insight_endpoint(
+    dataset_id: int,
+    request: InsightGenerationRequest,
+    db: Annotated[Session, Depends(get_db)],
+):
+    if get_dataset(db, dataset_id) is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    if request.analysis_id is None:
+        analysis = get_newest_dataset_analysis(db, dataset_id=dataset_id)
+        if analysis is None:
+            raise HTTPException(
+                status_code=409, detail="Dataset has no persisted analysis"
+            )
+    else:
+        analysis = get_dataset_analysis(
+            db, dataset_id=dataset_id, analysis_id=request.analysis_id
+        )
+        if analysis is None:
+            raise HTTPException(
+                status_code=404, detail="Dataset analysis not found"
+            )
+
+    try:
+        payload, model = generate_insight(
+            analysis.report, provider=request.provider
+        )
+    except InsightProviderNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="OpenAI insight provider is not configured",
+        ) from exc
+    except InsightGenerationError as exc:
+        raise HTTPException(
+            status_code=502, detail="Insight generation failed"
+        ) from exc
+
+    try:
+        return create_dataset_insight(
+            db,
+            dataset_id=dataset_id,
+            analysis_id=analysis.id,
+            provider=request.provider,
+            model=model,
+            payload=payload,
+        )
+    except Exception:
+        db.rollback()
+        raise
+
+
+@router.get(
+    "/{dataset_id}/insights",
+    response_model=list[DatasetInsightRead],
+)
+def list_dataset_insights_endpoint(
+    dataset_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    offset: Annotated[int, Query(ge=0)] = 0,
+):
+    if get_dataset(db, dataset_id) is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    return get_dataset_insights(
+        db, dataset_id=dataset_id, limit=limit, offset=offset
+    )
+
+
+@router.get(
+    "/{dataset_id}/insights/{insight_id}",
+    response_model=DatasetInsightRead,
+)
+def read_dataset_insight(
+    dataset_id: int,
+    insight_id: int,
+    db: Annotated[Session, Depends(get_db)],
+):
+    if get_dataset(db, dataset_id) is None:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+    insight = get_dataset_insight(
+        db, dataset_id=dataset_id, insight_id=insight_id
+    )
+    if insight is None:
+        raise HTTPException(status_code=404, detail="Dataset insight not found")
+    return insight
 
 
 
