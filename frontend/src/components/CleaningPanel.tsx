@@ -1,0 +1,23 @@
+import { useEffect, useState } from 'react'
+import { api } from '../api/client'
+import { parseApiError } from '../utils/errors'
+import { formatDate } from '../utils/format'
+import type { CleanedDataset, CleaningRequest } from '../types/api'
+import { EmptyState, LoadingState, SectionHeading, StatusMessage } from './Common'
+
+const initialForm: CleaningRequest = { remove_duplicate_rows: false, numeric_missing_strategy: 'keep', text_missing_strategy: 'keep', numeric_outlier_strategy: 'keep' }
+
+export function CleaningPanel({ datasetId }: { datasetId: number }) {
+  const [form, setForm] = useState<CleaningRequest>(initialForm)
+  const [history, setHistory] = useState<CleanedDataset[]>([])
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [result, setResult] = useState<CleanedDataset | null>(null)
+  async function load() { setLoading(true); try { setHistory(await api.listCleanings(datasetId)); setError(null) } catch (caught) { setError(parseApiError(caught)) } finally { setLoading(false) } }
+  useEffect(() => { setResult(null); void load() }, [datasetId])
+  async function submit(event: React.FormEvent) { event.preventDefault(); setBusy(true); setError(null); try { const created = await api.createCleaning(datasetId, form); setResult(created); await load() } catch (caught) { setError(parseApiError(caught)) } finally { setBusy(false) } }
+  function update<K extends keyof CleaningRequest>(key: K, value: CleaningRequest[K]) { setForm((current) => ({ ...current, [key]: value })) }
+  return <div className="cleaning-layout"><section className="panel"><SectionHeading eyebrow="Transform safely" title="Clean a copy" detail="The uploaded original remains unchanged." />{error && <StatusMessage title="Cleaning unavailable" detail={error} tone="error" />}<form className="cleaning-form" onSubmit={submit}><label className="toggle-row"><input type="checkbox" checked={form.remove_duplicate_rows} onChange={(event) => update('remove_duplicate_rows', event.target.checked)} /><span><strong>Remove duplicate rows</strong><small>Keep the first occurrence of each duplicate.</small></span></label><Field label="Numeric missing values"><select value={form.numeric_missing_strategy} onChange={(event) => update('numeric_missing_strategy', event.target.value as CleaningRequest['numeric_missing_strategy'])}><option value="keep">Keep as-is</option><option value="mean">Fill with mean</option><option value="median">Fill with median</option></select></Field><Field label="Text missing values"><select value={form.text_missing_strategy} onChange={(event) => update('text_missing_strategy', event.target.value as CleaningRequest['text_missing_strategy'])}><option value="keep">Keep as-is</option><option value="mode">Fill with mode</option></select></Field><Field label="Numeric outliers"><select value={form.numeric_outlier_strategy} onChange={(event) => update('numeric_outlier_strategy', event.target.value as CleaningRequest['numeric_outlier_strategy'])}><option value="keep">Keep as-is</option><option value="remove">Remove rows</option><option value="clip_iqr">Clip to IQR bounds</option></select></Field><button className="button button-primary" type="submit" disabled={busy}>{busy ? 'Cleaning...' : 'Create cleaned copy'}</button></form>{result && <div className="cleaning-result"><StatusMessage title="Cleaned copy created" detail={result.original_filename} tone="success" /><div className="result-stats"><strong>{result.original_row_count} <small>original rows</small></strong><span>→</span><strong>{result.cleaned_row_count} <small>cleaned rows</small></strong></div><a className="button button-secondary" href={api.downloadCleaningUrl(datasetId, result.id)}>Download CSV</a></div>}</section><section className="panel"><SectionHeading eyebrow="History" title="Cleaning history" detail="Your latest cleaned copies." />{loading ? <LoadingState label="Loading cleaning history..." /> : history.length ? <div className="cleaning-history">{history.map((item) => <div className="history-row" key={item.id}><div><strong>{item.original_filename}</strong><small>{formatDate(item.created_at)} · {item.cleaned_row_count} rows</small></div><a href={api.downloadCleaningUrl(datasetId, item.id)} aria-label={`Download ${item.original_filename}`}>Download</a></div>)}</div> : <EmptyState title="No cleaned copies" detail="Choose an operation to create a cleaned CSV." />}</section></div>
+}
+function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="field"><span>{label}</span>{children}</label> }
