@@ -22,6 +22,7 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+      start_period: 5s
 
   redis:
     image: redis:7.4-alpine
@@ -46,10 +47,58 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+      start_period: 5s
+
+  api:
+    build:
+      context: ./backend
+    image: datapilot-backend:local
+    container_name: datapilot-api
+    restart: unless-stopped
+
+    command:
+      [
+        "sh",
+        "-c",
+        "python -m alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000",
+      ]
+
+    env_file:
+      - ./backend/.env
+
+    environment:
+      POSTGRES_HOST: db
+      REDIS_URL: redis://redis:6379/0
+
+    ports:
+      - "8000:8000"
+
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    volumes:
+      - ./backend/storage:/app/storage
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   worker:
     build:
       context: ./backend
+    image: datapilot-backend:local
 
     container_name: datapilot-worker
     restart: unless-stopped
@@ -61,6 +110,7 @@ services:
         "app.core.celery_app:celery_app",
         "worker",
         "--loglevel=INFO",
+        "--concurrency=2",
       ]
 
     env_file:
@@ -74,6 +124,8 @@ services:
       db:
         condition: service_healthy
       redis:
+        condition: service_healthy
+      api:
         condition: service_healthy
 
     volumes:

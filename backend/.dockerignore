@@ -3,4 +3,5 @@ __pycache__
 .pytest_cache
 .env
 storage/uploads
+storage/cleaned
 *.pyc
