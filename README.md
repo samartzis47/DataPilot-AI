@@ -102,26 +102,36 @@ Copy-Item backend/.env.example backend/.env
 
 Update the local database password in `backend/.env` if needed. Keep `OPENAI_API_KEY` empty to use the deterministic rules provider.
 
-Start the complete API, worker, PostgreSQL and Redis stack with one command:
+Start the complete frontend, API, worker, PostgreSQL and Redis stack with one command:
 
 ```powershell
-docker compose -f compose.yaml up -d --build
+docker compose up -d --build
 ```
 
 Check service status and logs:
 
 ```powershell
 docker compose -f compose.yaml ps
-docker compose -f compose.yaml logs -f api worker
+docker compose logs -f frontend api worker
 ```
 
-The API health endpoint is http://127.0.0.1:8000/health and Swagger UI is available at http://127.0.0.1:8000/docs.
+Frontend: http://127.0.0.1:3000
+
+Swagger UI: http://127.0.0.1:8000/docs
+
+API health: http://127.0.0.1:8000/health
+
+Frontend health: http://127.0.0.1:3000/healthz
+
+The frontend uses the same-origin `/api` path. Nginx removes that prefix and proxies the request to the internal `api:8000` service, so the browser never needs to know the Docker hostname.
 
 Stop the stack with:
 
 ```powershell
-docker compose -f compose.yaml down
+docker compose down
 ```
+
+This stops the services without deleting the PostgreSQL or Redis volumes. Do not add `-v` unless you intentionally want to remove those volumes.
 
 ---
 

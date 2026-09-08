@@ -24,6 +24,16 @@ npm run dev
 
 Open the URL printed by Vite. Requests made to `/api` are proxied to `http://127.0.0.1:8000` and the `/api` prefix is removed before forwarding, so the browser does not require backend CORS changes.
 
+## Production Docker
+
+From the repository root:
+
+```bash
+docker compose up -d --build
+```
+
+The production frontend is available at `http://127.0.0.1:3000`. Nginx serves the Vite build and proxies same-origin `/api/*` requests to the internal FastAPI `api:8000` service, stripping the `/api` prefix. The browser does not receive or use the Docker service hostname.
+
 ## Production build
 
 ```bash
@@ -39,7 +49,7 @@ npm run lint
 
 ## Environment
 
-`VITE_API_BASE_URL` controls the API prefix. It defaults to `/api`; use an absolute URL only when the frontend is served without the Vite proxy.
+`VITE_API_BASE_URL` controls the API prefix. It defaults to `/api`; local Vite development uses the configured Vite proxy, while the production Docker build fixes it to `/api` for the Nginx proxy. No API keys or backend secrets are included in the frontend bundle.
 
 ## Screens
 
