@@ -1,5 +1,7 @@
 # DataPilot-AI
 
+[![CI](https://github.com/samartzis47/DataPilot-AI/actions/workflows/ci.yml/badge.svg)](https://github.com/samartzis47/DataPilot-AI/actions/workflows/ci.yml)
+
 A production-oriented backend project focused on AI engineering, data engineering and modern software development practices.
 
 The goal of DataPilot-AI is to simulate the architecture, development workflow and quality standards of a real-world production system.
@@ -16,6 +18,12 @@ The goal of DataPilot-AI is to simulate the architecture, development workflow a
 - Automated testing with Pytest
 - Clean project structure
 - Git & GitHub workflow
+
+---
+
+## Continuous Integration
+
+Every push and pull request verifies backend tests, Alembic migrations, frontend TypeScript, ESLint, frontend tests, the production frontend build, and Docker image builds.
 
 ---
 
