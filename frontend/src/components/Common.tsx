@@ -2,11 +2,18 @@ import type { ReactNode } from 'react'
 import type { JobStatus, Severity } from '../types/api'
 
 export function StatusMessage({ title, detail, tone = 'neutral' }: { title: string; detail?: string; tone?: 'neutral' | 'error' | 'success' }) {
-  return <div className={`status-message status-${tone}`} role={tone === 'error' ? 'alert' : undefined}><strong>{title}</strong>{detail && <span>{detail}</span>}</div>
+  return <div className={`status-message status-${tone}`} role={tone === 'error' ? 'alert' : 'status'}>
+    <strong>{title}</strong>
+    {detail && <span>{detail}</span>}
+  </div>
 }
 
 export function EmptyState({ title, detail, action }: { title: string; detail: string; action?: ReactNode }) {
-  return <div className="empty-state"><div className="empty-mark">--</div><h3>{title}</h3><p>{detail}</p>{action}</div>
+  return <div className="empty-state">
+    <h3>{title}</h3>
+    <p>{detail}</p>
+    {action}
+  </div>
 }
 
 export function SectionHeading({ eyebrow, title, detail, action }: { eyebrow?: string; title: string; detail?: string; action?: ReactNode }) {
@@ -18,5 +25,5 @@ export function Badge({ value, tone }: { value: string; tone?: JobStatus | Sever
 }
 
 export function LoadingState({ label = 'Loading' }: { label?: string }) {
-  return <div className="loading-state"><span className="spinner" aria-hidden="true" />{label}</div>
+  return <div className="loading-state" role="status"><span className="spinner" aria-hidden="true" />{label}</div>
 }

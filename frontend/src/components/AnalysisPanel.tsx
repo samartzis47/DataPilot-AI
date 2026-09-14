@@ -22,6 +22,73 @@ export function AnalysisPanel({ datasetId }: { datasetId: number }) {
     try { const created = await api.createAnalysisJob(datasetId); setJob(created); const finished = await pollAnalysisJob(() => api.getAnalysisJob(datasetId, created.id), { signal: controller.signal }); setJob(finished); await loadHistory() } catch (caught) { if (caught instanceof DOMException && caught.name === 'AbortError') return; setError(parseApiError(caught)) } finally { setStarting(false) }
   }
 
-  return <div className="analysis-layout"><section className="panel"><SectionHeading eyebrow="Async processing" title="Dataset analysis" detail="Run a persisted profile through the Celery worker." action={<button className="button button-primary" type="button" onClick={() => void runAnalysis()} disabled={starting}>{starting ? 'Processing...' : 'Run dataset analysis'}</button>} />{error && <StatusMessage title="Analysis request failed" detail={error} tone="error" />}{job && <JobCard job={job} />}</section><section className="panel"><SectionHeading eyebrow="History" title="Analysis jobs" detail="Newest jobs appear first." />{loading ? <LoadingState label="Loading job history..." /> : history.length ? <div className="history-list">{history.map((item) => <JobCard key={item.id} job={item} compact />)}</div> : <EmptyState title="No analysis jobs" detail="Run an analysis to create a persisted snapshot." />}</section></div>
+  return (
+    <div className="analysis-layout">
+      <section className="panel">
+        <SectionHeading title="Dataset analysis" detail="Save a snapshot of this dataset's profile and quality checks." />
+        <div className="analysis-action">
+          <button className="button button-primary" type="button" onClick={() => void runAnalysis()} disabled={starting} aria-busy={starting}>
+            {starting && <span className="spinner" aria-hidden="true" />}
+            {starting ? 'Processing...' : 'Run dataset analysis'}
+          </button>
+          <p className="job-context">Use a saved analysis to generate insight reports.</p>
+        </div>
+        {error && <StatusMessage title="Analysis request failed" detail={error} tone="error" />}
+        <div aria-live="polite">
+          {job && <JobCard job={job} />}
+        </div>
+      </section>
+      <section className="panel" aria-busy={loading}>
+        <SectionHeading title="Analysis history" detail="Recent runs and their status, newest first." />
+        {loading ? <LoadingState label="Loading job history..." /> : history.length ? (
+          <ul className="history-list">
+            {history.map((item) => <li key={item.id}><JobCard job={item} compact /></li>)}
+          </ul>
+        ) : <EmptyState title="No analysis jobs yet" detail="Run your first analysis to save a snapshot and track its progress here." />}
+      </section>
+    </div>
+  )
 }
-function JobCard({ job, compact = false }: { job: ProcessingJob; compact?: boolean }) { return <div className={`job-card ${compact ? 'is-compact' : ''}`}><div className="job-header"><div><span className="job-id">JOB-{String(job.id).padStart(4, '0')}</span><h3>{job.status === 'succeeded' ? 'Analysis complete' : job.status === 'failed' ? 'Analysis failed' : 'Analysis in progress'}</h3></div><Badge value={job.status} tone={job.status} /></div><div className="job-details"><span>Created <strong>{formatDate(job.created_at)}</strong></span><span>Started <strong>{formatDate(job.started_at)}</strong></span><span>Finished <strong>{formatDate(job.finished_at)}</strong></span><span>Attempts <strong>{job.attempt_count}</strong></span>{job.analysis_id && <span>Analysis ID <strong>{job.analysis_id}</strong></span>}</div>{job.error_message && <StatusMessage title="Worker message" detail={job.error_message} tone="error" />}</div>}
+
+const jobTitles: Record<ProcessingJob['status'], string> = {
+  queued: 'Waiting to start',
+  running: 'Analysis running',
+  retrying: 'Retrying analysis',
+  succeeded: 'Analysis complete',
+  failed: 'Analysis failed',
+}
+
+const jobDescriptions: Record<ProcessingJob['status'], string> = {
+  queued: 'Waiting for processing to begin.',
+  running: 'Checking the dataset and creating an analysis snapshot.',
+  retrying: 'Another attempt is scheduled automatically.',
+  succeeded: 'The analysis snapshot is saved and ready for insight generation.',
+  failed: 'The analysis could not finish. You can start another run.',
+}
+
+function JobCard({ job, compact = false }: { job: ProcessingJob; compact?: boolean }) {
+  return (
+    <article className={`job-card ${compact ? 'is-compact' : ''}`} aria-label={`Analysis job ${job.id}`}>
+      <div className="job-header">
+        <div>
+          <span className="job-id">Job #{String(job.id).padStart(4, '0')}</span>
+          <h3>{jobTitles[job.status]}</h3>
+        </div>
+        <Badge value={job.status} tone={job.status} />
+      </div>
+      {!compact && <p className="job-status-note">{jobDescriptions[job.status]}</p>}
+      <dl className="job-details">
+        <div><dt>Created</dt><dd><JobDate value={job.created_at} /></dd></div>
+        <div><dt>Started</dt><dd><JobDate value={job.started_at} /></dd></div>
+        <div><dt>Finished</dt><dd><JobDate value={job.finished_at} /></dd></div>
+        <div><dt>Attempts</dt><dd>{job.attempt_count}</dd></div>
+        {job.analysis_id && <div><dt>Saved analysis</dt><dd>#{job.analysis_id}</dd></div>}
+      </dl>
+      {job.error_message && <StatusMessage title={job.status === 'failed' ? 'Analysis error' : 'Processing update'} detail={job.error_message} tone={job.status === 'failed' ? 'error' : 'neutral'} />}
+    </article>
+  )
+}
+
+function JobDate({ value }: { value: string | null }) {
+  return value ? <time dateTime={value}>{formatDate(value)}</time> : <>Not recorded</>
+}

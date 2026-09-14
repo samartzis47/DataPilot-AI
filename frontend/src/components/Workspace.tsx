@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import { parseApiError } from '../utils/errors'
+import { formatBytes } from '../utils/format'
 import type { Dataset, DatasetProfile } from '../types/api'
 import { AnalysisPanel } from './AnalysisPanel'
 import { CleaningPanel } from './CleaningPanel'
@@ -17,6 +18,27 @@ export function Workspace({ dataset, refreshToken }: { dataset: Dataset; refresh
   const [error, setError] = useState<string | null>(null)
   async function loadProfile() { setLoading(true); try { setProfile(await api.getProfile(dataset.id)); setError(null) } catch (caught) { setError(parseApiError(caught)) } finally { setLoading(false) } }
   useEffect(() => { void loadProfile() }, [dataset.id, refreshToken])
-  return <section className="workspace"><div className="workspace-heading"><div><h1>{dataset.original_filename}</h1><p className="workspace-subtitle">Dataset ID {dataset.id} · {dataset.content_type}</p></div><Badge value="persisted" tone="online" /></div><nav className="tabs" aria-label="Dataset workspace"><TabButton active={tab === 'overview'} onClick={() => setTab('overview')}>Overview</TabButton><TabButton active={tab === 'analysis'} onClick={() => setTab('analysis')}>Analysis</TabButton><TabButton active={tab === 'cleaning'} onClick={() => setTab('cleaning')}>Cleaning</TabButton><TabButton active={tab === 'insights'} onClick={() => setTab('insights')}>AI Insights</TabButton></nav>{tab === 'overview' && <ProfilePanel profile={profile} loading={loading} error={error} onRetry={() => void loadProfile()} />}{tab === 'analysis' && <AnalysisPanel datasetId={dataset.id} />}{tab === 'cleaning' && <CleaningPanel datasetId={dataset.id} />}{tab === 'insights' && <InsightsPanel datasetId={dataset.id} />}</section>
+  return <section className="workspace" aria-labelledby="workspace-title">
+    <div className="workspace-heading">
+      <div className="workspace-identity">
+        <p className="eyebrow">Dataset workspace</p>
+        <h1 id="workspace-title">{dataset.original_filename}</h1>
+        <p className="workspace-subtitle"><span>Dataset ID {dataset.id}</span><span>{dataset.content_type}</span><span>{formatBytes(dataset.size_bytes)}</span></p>
+      </div>
+      <Badge value="persisted" tone="online" />
+    </div>
+    <nav className="tabs" aria-label="Dataset workspace">
+      <TabButton active={tab === 'overview'} onClick={() => setTab('overview')}>Overview</TabButton>
+      <TabButton active={tab === 'analysis'} onClick={() => setTab('analysis')}>Analysis</TabButton>
+      <TabButton active={tab === 'cleaning'} onClick={() => setTab('cleaning')}>Cleaning</TabButton>
+      <TabButton active={tab === 'insights'} onClick={() => setTab('insights')}>AI Insights</TabButton>
+    </nav>
+    <div id="workspace-panel">
+      {tab === 'overview' && <ProfilePanel profile={profile} loading={loading} error={error} onRetry={() => void loadProfile()} />}
+      {tab === 'analysis' && <AnalysisPanel datasetId={dataset.id} />}
+      {tab === 'cleaning' && <CleaningPanel datasetId={dataset.id} />}
+      {tab === 'insights' && <InsightsPanel datasetId={dataset.id} />}
+    </div>
+  </section>
 }
-function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: string }) { return <button className={`tab ${active ? 'is-active' : ''}`} type="button" onClick={onClick} aria-current={active ? 'page' : undefined}>{children}</button> }
+function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: string }) { return <button className={`tab ${active ? 'is-active' : ''}`} type="button" onClick={onClick} aria-current={active ? 'page' : undefined} aria-controls="workspace-panel">{children}</button> }
